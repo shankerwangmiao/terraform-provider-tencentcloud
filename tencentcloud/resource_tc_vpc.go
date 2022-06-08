@@ -45,11 +45,12 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/tencentcloudstack/terraform-provider-tencentcloud/tencentcloud/internal/hashcode"
+
 	vpc "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/vpc/v20170312"
 
-	"github.com/hashicorp/terraform-plugin-sdk/helper/hashcode"
-	"github.com/hashicorp/terraform-plugin-sdk/helper/resource"
-	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common/errors"
 	"github.com/tencentcloudstack/terraform-provider-tencentcloud/tencentcloud/internal/helper"
 )
@@ -287,12 +288,10 @@ func resourceTencentCloudVpcInstanceUpdate(d *schema.ResourceData, meta interfac
 		dnsServers  = make([]string, 0, 4)
 		slice       []interface{}
 		isMulticast bool
-		updateAttr  []string
 	)
 
 	old, now := d.GetChange("name")
 	if d.HasChange("name") {
-		updateAttr = append(updateAttr, "name")
 
 		name = now.(string)
 	} else {
@@ -301,7 +300,6 @@ func resourceTencentCloudVpcInstanceUpdate(d *schema.ResourceData, meta interfac
 
 	old, now = d.GetChange("dns_servers")
 	if d.HasChange("dns_servers") {
-		updateAttr = append(updateAttr, "dns_servers")
 
 		slice = now.(*schema.Set).List()
 		if len(slice) < 1 {
@@ -322,8 +320,6 @@ func resourceTencentCloudVpcInstanceUpdate(d *schema.ResourceData, meta interfac
 
 	old, now = d.GetChange("is_multicast")
 	if d.HasChange("is_multicast") {
-		updateAttr = append(updateAttr, "is_multicast")
-
 		isMulticast = now.(bool)
 	} else {
 		isMulticast = old.(bool)
@@ -331,10 +327,6 @@ func resourceTencentCloudVpcInstanceUpdate(d *schema.ResourceData, meta interfac
 
 	if err := vpcService.ModifyVpcAttribute(ctx, id, name, isMulticast, dnsServers); err != nil {
 		return err
-	}
-
-	for _, attr := range updateAttr {
-		d.SetPartial(attr)
 	}
 
 	if d.HasChange("assistant_cidrs") {
@@ -346,7 +338,6 @@ func resourceTencentCloudVpcInstanceUpdate(d *schema.ResourceData, meta interfac
 		if err := vpcService.ModifyAssistantCidr(ctx, request); err != nil {
 			return err
 		}
-		d.SetPartial("assistant_cidrs")
 	}
 
 	if d.HasChange("tags") {
@@ -362,7 +353,6 @@ func resourceTencentCloudVpcInstanceUpdate(d *schema.ResourceData, meta interfac
 			return err
 		}
 
-		d.SetPartial("tags")
 	}
 
 	d.Partial(false)

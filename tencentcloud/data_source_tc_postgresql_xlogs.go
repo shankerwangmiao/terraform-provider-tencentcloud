@@ -19,10 +19,11 @@ import (
 	"context"
 	"time"
 
+	"github.com/tencentcloudstack/terraform-provider-tencentcloud/tencentcloud/internal/helper"
+
 	postgresql "github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/postgres/v20170312"
 
-	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
-	"github.com/tencentcloudstack/terraform-provider-tencentcloud/tencentcloud/internal/helper"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 )
 
 func datasourceTencentCloudPostgresqlXlogs() *schema.Resource {
