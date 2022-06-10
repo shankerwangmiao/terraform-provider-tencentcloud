@@ -503,10 +503,6 @@ func resourceTencentCloudInstance() *schema.Resource {
 func resourceTencentCloudInstanceCreate(d *schema.ResourceData, meta interface{}) error {
 	defer logElapsed("resource.tencentcloud_instance.create")()
 	logId := getLogId(contextNil)
-	ctx := context.WithValue(context.TODO(), logIdKey, logId)
-	cvmService := CvmService{
-		client: meta.(*TencentCloudClient).apiV3Conn,
-	}
 
 	request := cvm.NewRunInstancesRequest()
 	request.ImageId = helper.String(d.Get("image_id").(string))
@@ -731,92 +727,7 @@ func resourceTencentCloudInstanceCreate(d *schema.ResourceData, meta interface{}
 	}
 	d.SetId(instanceId)
 
-	// wait for status
-	//get system disk ID and data disk ID
-	var systemDiskId string
-	var dataDiskIds []string
-	err = resource.Retry(5*readRetryTimeout, func() *resource.RetryError {
-		instance, errRet := cvmService.DescribeInstanceById(ctx, instanceId)
-		if errRet != nil {
-			return retryError(errRet, InternalError)
-		}
-		if instance != nil && (*instance.InstanceState == CVM_STATUS_RUNNING ||
-			*instance.InstanceState == CVM_STATUS_LAUNCH_FAILED) {
-			//get system disk ID
-			if instance.SystemDisk != nil && instance.SystemDisk.DiskId != nil {
-				systemDiskId = *instance.SystemDisk.DiskId
-			}
-			if instance.DataDisks != nil {
-				for _, dataDisk := range instance.DataDisks {
-					if dataDisk != nil && dataDisk.DiskId != nil {
-						dataDiskIds = append(dataDiskIds, *dataDisk.DiskId)
-					}
-				}
-			}
-			return nil
-		}
-		return resource.RetryableError(fmt.Errorf("cvm instance status is %s, retry...", *instance.InstanceState))
-	})
-
-	if err != nil {
-		return err
-	}
-
-	// Wait for the tags attached to the vm since tags attachment it's async while vm creation.
-	if tags := helper.GetTags(d, "tags"); len(tags) > 0 {
-		tcClient := meta.(*TencentCloudClient).apiV3Conn
-		tagService := &TagService{client: tcClient}
-		resourceName := BuildTagResourceName("cvm", "instance", tcClient.Region, instanceId)
-		if err := tagService.ModifyTags(ctx, resourceName, tags, nil); err != nil {
-			// If tags attachment failed, the user will be notified, then plan/apply/update with terraform.
-			return err
-		}
-
-		//except instance ,system disk and data disk will be tagged
-		//keep logical consistence with the console
-		//tag system disk
-		if systemDiskId != "" {
-			resourceName = BuildTagResourceName("cvm", "volume", tcClient.Region, systemDiskId)
-			if err := tagService.ModifyTags(ctx, resourceName, tags, nil); err != nil {
-				// If tags attachment failed, the user will be notified, then plan/apply/update with terraform.
-				return err
-			}
-		}
-		//tag disk ids
-		for _, diskId := range dataDiskIds {
-			if diskId != "" {
-				resourceName = BuildTagResourceName("cvm", "volume", tcClient.Region, diskId)
-				if err := tagService.ModifyTags(ctx, resourceName, tags, nil); err != nil {
-					// If tags attachment failed, the user will be notified, then plan/apply/update with terraform.
-					return err
-				}
-			}
-		}
-	}
-
-	if !(d.Get("running_flag").(bool)) {
-		stoppedMode := d.Get("stopped_mode").(string)
-		err = cvmService.StopInstance(ctx, instanceId, stoppedMode)
-		if err != nil {
-			return err
-		}
-
-		err = resource.Retry(2*readRetryTimeout, func() *resource.RetryError {
-			instance, errRet := cvmService.DescribeInstanceById(ctx, instanceId)
-			if errRet != nil {
-				return retryError(errRet, InternalError)
-			}
-			if instance != nil && *instance.InstanceState == CVM_STATUS_STOPPED {
-				return nil
-			}
-			return resource.RetryableError(fmt.Errorf("cvm instance status is %s, retry...", *instance.InstanceState))
-		})
-		if err != nil {
-			return err
-		}
-	}
-
-	return resourceTencentCloudInstanceRead(d, meta)
+	return nil
 }
 
 func resourceTencentCloudInstanceRead(d *schema.ResourceData, meta interface{}) error {
@@ -840,49 +751,16 @@ func resourceTencentCloudInstanceRead(d *schema.ResourceData, meta interface{}) 
 	cbsService := CbsService{client: client}
 	var instance *cvm.Instance
 	var errRet error
-	err := resource.Retry(readRetryTimeout, func() *resource.RetryError {
-		instance, errRet = cvmService.DescribeInstanceById(ctx, instanceId)
-		if errRet != nil {
-			return retryError(errRet, InternalError)
-		}
-		if instance != nil && instance.LatestOperationState != nil && *instance.LatestOperationState == "OPERATING" {
-			return resource.RetryableError(fmt.Errorf("waiting for instance %s operation", *instance.InstanceId))
-		}
-		return nil
-	})
-	if err != nil {
-		return err
+	instance, errRet = cvmService.DescribeInstanceById(ctx, instanceId)
+	if errRet != nil {
+		return errRet
 	}
 	if instance == nil {
 		d.SetId("")
 		return nil
 	}
 
-	var cvmImages []string
-	var response *cvm.DescribeImagesResponse
-	err = resource.Retry(readRetryTimeout, func() *resource.RetryError {
-		request := cvm.NewDescribeImagesRequest()
-		response, errRet = client.UseCvmClient().DescribeImages(request)
-		if *response.Response.TotalCount > 0 {
-			for i := range response.Response.ImageSet {
-				image := response.Response.ImageSet[i]
-				cvmImages = append(cvmImages, *image.ImageId)
-			}
-		}
-		if errRet != nil {
-			return retryError(errRet, InternalError)
-		}
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	if d.Get("image_id").(string) == "" || !IsContains(cvmImages, *instance.ImageId) {
-		_ = d.Set("image_id", instance.ImageId)
-	}
-
+	_ = d.Set("image_id", instance.ImageId)
 	_ = d.Set("availability_zone", instance.Placement.Zone)
 	_ = d.Set("instance_name", instance.InstanceName)
 	_ = d.Set("instance_type", instance.InstanceType)
@@ -909,17 +787,6 @@ func resourceTencentCloudInstanceRead(d *schema.ResourceData, meta interface{}) 
 	if _, ok := d.GetOkExists("allocate_public_ip"); !ok {
 		_ = d.Set("allocate_public_ip", len(instance.PublicIpAddresses) > 0)
 	}
-
-	tagService := TagService{client}
-
-	tags, err := tagService.DescribeResourceTags(ctx, "cvm", "instance", client.Region, d.Id())
-	if err != nil {
-		return err
-	}
-	// as attachment add tencentcloud:autoscaling:auto-scaling-group-id tag automatically
-	// we should remove this tag, otherwise it will cause terraform state change
-	delete(tags, "tencentcloud:autoscaling:auto-scaling-group-id")
-	_ = d.Set("tags", tags)
 
 	//set data_disks
 	dataDiskList := make([]map[string]interface{}, 0, len(instance.DataDisks))
@@ -1445,10 +1312,17 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 		client: meta.(*TencentCloudClient).apiV3Conn,
 	}
 
+	// first delete
 	err := resource.Retry(writeRetryTimeout, func() *resource.RetryError {
 		errRet := cvmService.DeleteInstance(ctx, instanceId)
 		if errRet != nil {
-			return retryError(errRet)
+			log.Printf("[CRITAL][first delete]%s api[%s] fail, reason[%s]\n",
+				logId, "delete", errRet.Error())
+			e, ok := errRet.(*sdkErrors.TencentCloudSDKError)
+			if ok && IsContains(CVM_RETRYABLE_ERROR, e.Code) {
+				return resource.RetryableError(fmt.Errorf("[first delete]cvm delete error: %s, retrying", e.Error()))
+			}
+			return resource.NonRetryableError(errRet)
 		}
 		return nil
 	})
@@ -1459,11 +1333,17 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 	//check recycling
 	notExist := false
 
-	//check exist
-	err = resource.Retry(5*readRetryTimeout, func() *resource.RetryError {
+	//first check exist
+	err = resource.Retry(readRetryTimeout, func() *resource.RetryError {
 		instance, errRet := cvmService.DescribeInstanceById(ctx, instanceId)
 		if errRet != nil {
-			return retryError(errRet, InternalError)
+			log.Printf("[CRITAL][first check exist]%s api[%s] fail, reason[%s]\n",
+				logId, "describe", errRet.Error())
+			e, ok := errRet.(*sdkErrors.TencentCloudSDKError)
+			if ok && IsContains(CVM_RETRYABLE_ERROR, e.Code) {
+				return resource.RetryableError(fmt.Errorf("[first check exist]cvm describe error: %s, retrying", e.Error()))
+			}
+			return resource.NonRetryableError(errRet)
 		}
 		if instance == nil {
 			notExist = true
@@ -1473,7 +1353,7 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 			//in recycling
 			return nil
 		}
-		return resource.RetryableError(fmt.Errorf("cvm instance status is %s, retry...", *instance.InstanceState))
+		return resource.RetryableError(fmt.Errorf("[check exist retry]cvm instance status is %s, retry...", *instance.InstanceState))
 	})
 	if err != nil {
 		return err
@@ -1489,6 +1369,8 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 		//when state is terminating, do not delete but check exist
 		if errRet != nil {
 			//check InvalidInstanceState.Terminating
+			log.Printf("[CRITAL][second delete]%s api[%s] fail, reason[%s]\n",
+				logId, "delete", errRet.Error())
 			ee, ok := errRet.(*sdkErrors.TencentCloudSDKError)
 			if !ok {
 				return retryError(errRet)
@@ -1504,11 +1386,17 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 		return err
 	}
 
-	//describe and check not exist
-	err = resource.Retry(5*readRetryTimeout, func() *resource.RetryError {
+	//second check exist, describe and check not exist
+	err = resource.Retry(3*readRetryTimeout, func() *resource.RetryError {
 		instance, errRet := cvmService.DescribeInstanceById(ctx, instanceId)
 		if errRet != nil {
-			return retryError(errRet, InternalError)
+			log.Printf("[CRITAL][second check exist]%s api[%s] fail, reason[%s]\n",
+				logId, "describe", errRet.Error())
+			e, ok := errRet.(*sdkErrors.TencentCloudSDKError)
+			if ok && IsContains(CVM_RETRYABLE_ERROR, e.Code) {
+				return resource.RetryableError(fmt.Errorf("[second check exist]cvm describe error: %s, retrying", e.Error()))
+			}
+			return resource.NonRetryableError(errRet)
 		}
 		if instance == nil {
 			return nil
@@ -1527,9 +1415,13 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 			if deleteWithInstance {
 				cbsService := CbsService{client: meta.(*TencentCloudClient).apiV3Conn}
 				err := resource.Retry(readRetryTimeout*2, func() *resource.RetryError {
+					//first describe disk
 					diskInfo, e := cbsService.DescribeDiskById(ctx, diskId)
-					if e != nil {
-						return retryError(e, InternalError)
+					log.Printf("[CRITAL][first describe disk]%s api[%s] fail, reason[%s]\n",
+						logId, "describe disk", e.Error())
+					ee, ok := e.(*sdkErrors.TencentCloudSDKError)
+					if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
+						return resource.RetryableError(fmt.Errorf("[first describe disk]disk describe error: %s, retrying", e.Error()))
 					}
 					if *diskInfo.DiskState != CBS_STORAGE_STATUS_UNATTACHED {
 						return resource.RetryableError(fmt.Errorf("cbs storage status is %s", *diskInfo.DiskState))
@@ -1566,28 +1458,18 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 					return err
 				}
 				err = resource.Retry(writeRetryTimeout, func() *resource.RetryError {
+					// second delete disk
 					e := cbsService.DeleteDiskById(ctx, diskId)
-					if e != nil {
-						return retryError(e, InternalError)
+					log.Printf("[CRITAL][first describe disk]%s api[%s] fail, reason[%s]\n",
+						logId, "second delete disk", e.Error())
+					ee, ok := e.(*sdkErrors.TencentCloudSDKError)
+					if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
+						return resource.RetryableError(fmt.Errorf("[second delete disk]disk delete error: %s, retrying", e.Error()))
 					}
 					return nil
 				})
 				if err != nil {
 					log.Printf("[CRITAL]%s delete cbs failed, reason:%s\n ", logId, err.Error())
-					return err
-				}
-				err = resource.Retry(readRetryTimeout*2, func() *resource.RetryError {
-					diskInfo, e := cbsService.DescribeDiskById(ctx, diskId)
-					if e != nil {
-						return retryError(e, InternalError)
-					}
-					if diskInfo != nil {
-						return resource.RetryableError(fmt.Errorf("cbs storage status is %s", *diskInfo.DiskState))
-					}
-					return nil
-				})
-				if err != nil {
-					log.Printf("[CRITAL]%s read cbs status failed, reason:%s\n ", logId, err.Error())
 					return err
 				}
 			}
