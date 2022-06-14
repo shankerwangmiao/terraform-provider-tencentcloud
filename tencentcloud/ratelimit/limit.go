@@ -61,13 +61,14 @@ func ProCheck(namespace, action string) {
 }
 
 func Check(action string) {
+	var cvmCreateLimit = getEnvDefault(PROVIDER_NEED_LIMIT, 0)
+	if cvmCreateLimit == 1 {
+		_, filePath, _, _ := runtime.Caller(1)
 
-	_, filePath, _, _ := runtime.Caller(1)
+		items := strings.Split(filePath, `/`)
+		items = strings.Split(items[len(items)-1], `\`)
 
-	items := strings.Split(filePath, `/`)
-	items = strings.Split(items[len(items)-1], `\`)
-
-	fileName := strings.TrimSuffix(items[len(items)-1], ".go")
-
-	ProCheck(fileName, action)
+		fileName := strings.TrimSuffix(items[len(items)-1], ".go")
+		ProCheck(fileName, action)
+	}
 }
