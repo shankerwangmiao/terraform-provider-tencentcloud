@@ -708,6 +708,7 @@ func resourceTencentCloudInstanceCreate(d *schema.ResourceData, meta interface{}
 				logId, request.GetAction(), request.ToJsonString(), err.Error())
 			e, ok := err.(*sdkErrors.TencentCloudSDKError)
 			if ok && IsContains(CVM_RETRYABLE_ERROR, e.Code) {
+				time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
 				return resource.RetryableError(fmt.Errorf("cvm create error: %s, retrying", e.Error()))
 			}
 			return resource.NonRetryableError(err)
@@ -813,6 +814,7 @@ func resourceTencentCloudInstanceRead(d *schema.ResourceData, meta interface{}) 
 			for i := range disks {
 				disk := disks[i]
 				if *disk.DiskState == "EXPANDING" {
+					time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
 					return resource.RetryableError(fmt.Errorf("data_disk[%d] is expending", i))
 				}
 				diskSizeMap[*disk.DiskId] = disk.DiskSize
@@ -1320,6 +1322,7 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 				logId, "delete", errRet.Error())
 			e, ok := errRet.(*sdkErrors.TencentCloudSDKError)
 			if ok && IsContains(CVM_RETRYABLE_ERROR, e.Code) {
+				time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
 				return resource.RetryableError(fmt.Errorf("[first delete]cvm delete error: %s, retrying", e.Error()))
 			}
 			return resource.NonRetryableError(errRet)
@@ -1341,6 +1344,7 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 				logId, "describe", errRet.Error())
 			e, ok := errRet.(*sdkErrors.TencentCloudSDKError)
 			if ok && IsContains(CVM_RETRYABLE_ERROR, e.Code) {
+				time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
 				return resource.RetryableError(fmt.Errorf("[first check exist]cvm describe error: %s, retrying", e.Error()))
 			}
 			return resource.NonRetryableError(errRet)
@@ -1353,6 +1357,7 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 			//in recycling
 			return nil
 		}
+		time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
 		return resource.RetryableError(fmt.Errorf("[check exist retry]cvm instance status is %s, retry...", *instance.InstanceState))
 	})
 	if err != nil {
@@ -1372,12 +1377,14 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 			log.Printf("[CRITAL][second delete]%s api[%s] fail, reason[%s]\n",
 				logId, "delete", errRet.Error())
 			ee, ok := errRet.(*sdkErrors.TencentCloudSDKError)
-			if !ok {
-				return retryError(errRet)
-			}
 			if ee.Code == "InvalidInstanceState.Terminating" {
 				return nil
 			}
+			if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
+				time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
+				return resource.RetryableError(fmt.Errorf("[second delete]cvm delete error: %s, retrying", ee.Error()))
+			}
+			time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
 			return retryError(errRet, "OperationDenied.InstanceOperationInProgress")
 		}
 		return nil
@@ -1394,6 +1401,7 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 				logId, "describe", errRet.Error())
 			e, ok := errRet.(*sdkErrors.TencentCloudSDKError)
 			if ok && IsContains(CVM_RETRYABLE_ERROR, e.Code) {
+				time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
 				return resource.RetryableError(fmt.Errorf("[second check exist]cvm describe error: %s, retrying", e.Error()))
 			}
 			return resource.NonRetryableError(errRet)
@@ -1421,10 +1429,12 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 						logId, "describe disk", e.Error())
 					ee, ok := e.(*sdkErrors.TencentCloudSDKError)
 					if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
+						time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
 						return resource.RetryableError(fmt.Errorf("[first describe disk]disk describe error: %s, retrying", e.Error()))
 					}
 					if *diskInfo.DiskState != CBS_STORAGE_STATUS_UNATTACHED {
-						return resource.RetryableError(fmt.Errorf("cbs storage status is %s", *diskInfo.DiskState))
+						time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
+						return resource.RetryableError(fmt.Errorf("[first describe disk]cbs storage status is %s", *diskInfo.DiskState))
 					}
 					return nil
 				})
@@ -1434,8 +1444,10 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 				}
 				err = resource.Retry(writeRetryTimeout, func() *resource.RetryError {
 					e := cbsService.DeleteDiskById(ctx, diskId)
-					if e != nil {
-						return retryError(e, InternalError)
+					ee, ok := e.(*sdkErrors.TencentCloudSDKError)
+					if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
+						time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
+						return resource.RetryableError(fmt.Errorf("[first delete disk]disk delete error: %s, retrying", e.Error()))
 					}
 					return nil
 				})
@@ -1445,11 +1457,13 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 				}
 				err = resource.Retry(readRetryTimeout*2, func() *resource.RetryError {
 					diskInfo, e := cbsService.DescribeDiskById(ctx, diskId)
-					if e != nil {
-						return retryError(e, InternalError)
+					ee, ok := e.(*sdkErrors.TencentCloudSDKError)
+					if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
+						time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
+						return resource.RetryableError(fmt.Errorf("[second describe]cbs describe error: %s, retrying", ee.Error()))
 					}
 					if *diskInfo.DiskState == CBS_STORAGE_STATUS_TORECYCLE {
-						return resource.RetryableError(fmt.Errorf("cbs storage status is %s", *diskInfo.DiskState))
+						return resource.RetryableError(fmt.Errorf("[second describe]cbs storage status is %s", *diskInfo.DiskState))
 					}
 					return nil
 				})
@@ -1464,6 +1478,7 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 						logId, "second delete disk", e.Error())
 					ee, ok := e.(*sdkErrors.TencentCloudSDKError)
 					if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
+						time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
 						return resource.RetryableError(fmt.Errorf("[second delete disk]disk delete error: %s, retrying", e.Error()))
 					}
 					return nil
