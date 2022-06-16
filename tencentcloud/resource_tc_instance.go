@@ -1308,7 +1308,7 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 
 	instanceId := d.Id()
 	//check is force delete or not
-	forceDelete := d.Get("force_delete").(bool)
+	//forceDelete := d.Get("force_delete").(bool)
 
 	cvmService := CvmService{
 		client: meta.(*TencentCloudClient).apiV3Conn,
@@ -1333,163 +1333,163 @@ func resourceTencentCloudInstanceDelete(d *schema.ResourceData, meta interface{}
 		return err
 	}
 
-	//check recycling
-	notExist := false
-
-	//first check exist
-	err = resource.Retry(readRetryTimeout, func() *resource.RetryError {
-		instance, errRet := cvmService.DescribeInstanceById(ctx, instanceId)
-		if errRet != nil {
-			log.Printf("[CRITAL][first check exist]%s api[%s] fail, reason[%s]\n",
-				logId, "describe", errRet.Error())
-			e, ok := errRet.(*sdkErrors.TencentCloudSDKError)
-			if ok && IsContains(CVM_RETRYABLE_ERROR, e.Code) {
-				time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
-				return resource.RetryableError(fmt.Errorf("[first check exist]cvm describe error: %s, retrying", e.Error()))
-			}
-			return resource.NonRetryableError(errRet)
-		}
-		if instance == nil {
-			notExist = true
-			return nil
-		}
-		if *instance.InstanceState == CVM_STATUS_SHUTDOWN && *instance.LatestOperationState != CVM_LATEST_OPERATION_STATE_OPERATING {
-			//in recycling
-			return nil
-		}
-		time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
-		return resource.RetryableError(fmt.Errorf("[check exist retry]cvm instance status is %s, retry...", *instance.InstanceState))
-	})
-	if err != nil {
-		return err
-	}
-
-	if notExist || !forceDelete {
-		return nil
-	}
-
-	// exist in recycle, delete again
-	err = resource.Retry(writeRetryTimeout, func() *resource.RetryError {
-		errRet := cvmService.DeleteInstance(ctx, instanceId)
-		//when state is terminating, do not delete but check exist
-		if errRet != nil {
-			//check InvalidInstanceState.Terminating
-			log.Printf("[CRITAL][second delete]%s api[%s] fail, reason[%s]\n",
-				logId, "delete", errRet.Error())
-			ee, ok := errRet.(*sdkErrors.TencentCloudSDKError)
-			if ee.Code == "InvalidInstanceState.Terminating" {
-				return nil
-			}
-			if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
-				time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
-				return resource.RetryableError(fmt.Errorf("[second delete]cvm delete error: %s, retrying", ee.Error()))
-			}
-			time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
-			return retryError(errRet, "OperationDenied.InstanceOperationInProgress")
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	//second check exist, describe and check not exist
-	err = resource.Retry(3*readRetryTimeout, func() *resource.RetryError {
-		instance, errRet := cvmService.DescribeInstanceById(ctx, instanceId)
-		if errRet != nil {
-			log.Printf("[CRITAL][second check exist]%s api[%s] fail, reason[%s]\n",
-				logId, "describe", errRet.Error())
-			e, ok := errRet.(*sdkErrors.TencentCloudSDKError)
-			if ok && IsContains(CVM_RETRYABLE_ERROR, e.Code) {
-				time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
-				return resource.RetryableError(fmt.Errorf("[second check exist]cvm describe error: %s, retrying", e.Error()))
-			}
-			return resource.NonRetryableError(errRet)
-		}
-		if instance == nil {
-			return nil
-		}
-		return resource.RetryableError(fmt.Errorf("cvm instance status is %s, retry...", *instance.InstanceState))
-	})
-	if err != nil {
-		return err
-	}
-	if v, ok := d.GetOk("data_disks"); ok {
-		dataDisks := v.([]interface{})
-		for _, d := range dataDisks {
-			value := d.(map[string]interface{})
-			diskId := value["data_disk_id"].(string)
-			deleteWithInstance := value["delete_with_instance"].(bool)
-			if deleteWithInstance {
-				cbsService := CbsService{client: meta.(*TencentCloudClient).apiV3Conn}
-				err := resource.Retry(readRetryTimeout*2, func() *resource.RetryError {
-					//first describe disk
-					diskInfo, e := cbsService.DescribeDiskById(ctx, diskId)
-					log.Printf("[CRITAL][first describe disk]%s api[%s] fail, reason[%s]\n",
-						logId, "describe disk", e.Error())
-					ee, ok := e.(*sdkErrors.TencentCloudSDKError)
-					if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
-						time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
-						return resource.RetryableError(fmt.Errorf("[first describe disk]disk describe error: %s, retrying", e.Error()))
-					}
-					if *diskInfo.DiskState != CBS_STORAGE_STATUS_UNATTACHED {
-						time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
-						return resource.RetryableError(fmt.Errorf("[first describe disk]cbs storage status is %s", *diskInfo.DiskState))
-					}
-					return nil
-				})
-				if err != nil {
-					log.Printf("[CRITAL]%s delete cbs failed, reason:%s\n ", logId, err.Error())
-					return err
-				}
-				err = resource.Retry(writeRetryTimeout, func() *resource.RetryError {
-					e := cbsService.DeleteDiskById(ctx, diskId)
-					ee, ok := e.(*sdkErrors.TencentCloudSDKError)
-					if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
-						time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
-						return resource.RetryableError(fmt.Errorf("[first delete disk]disk delete error: %s, retrying", e.Error()))
-					}
-					return nil
-				})
-				if err != nil {
-					log.Printf("[CRITAL]%s delete cbs failed, reason:%s\n ", logId, err.Error())
-					return err
-				}
-				err = resource.Retry(readRetryTimeout*2, func() *resource.RetryError {
-					diskInfo, e := cbsService.DescribeDiskById(ctx, diskId)
-					ee, ok := e.(*sdkErrors.TencentCloudSDKError)
-					if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
-						time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
-						return resource.RetryableError(fmt.Errorf("[second describe]cbs describe error: %s, retrying", ee.Error()))
-					}
-					if *diskInfo.DiskState == CBS_STORAGE_STATUS_TORECYCLE {
-						return resource.RetryableError(fmt.Errorf("[second describe]cbs storage status is %s", *diskInfo.DiskState))
-					}
-					return nil
-				})
-				if err != nil {
-					log.Printf("[CRITAL]%s read cbs status failed, reason:%s\n ", logId, err.Error())
-					return err
-				}
-				err = resource.Retry(writeRetryTimeout, func() *resource.RetryError {
-					// second delete disk
-					e := cbsService.DeleteDiskById(ctx, diskId)
-					log.Printf("[CRITAL][first describe disk]%s api[%s] fail, reason[%s]\n",
-						logId, "second delete disk", e.Error())
-					ee, ok := e.(*sdkErrors.TencentCloudSDKError)
-					if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
-						time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
-						return resource.RetryableError(fmt.Errorf("[second delete disk]disk delete error: %s, retrying", e.Error()))
-					}
-					return nil
-				})
-				if err != nil {
-					log.Printf("[CRITAL]%s delete cbs failed, reason:%s\n ", logId, err.Error())
-					return err
-				}
-			}
-		}
-	}
+	////check recycling
+	//notExist := false
+	//
+	////first check exist
+	//err = resource.Retry(readRetryTimeout, func() *resource.RetryError {
+	//	instance, errRet := cvmService.DescribeInstanceById(ctx, instanceId)
+	//	if errRet != nil {
+	//		log.Printf("[CRITAL][first check exist]%s api[%s] fail, reason[%s]\n",
+	//			logId, "describe", errRet.Error())
+	//		e, ok := errRet.(*sdkErrors.TencentCloudSDKError)
+	//		if ok && IsContains(CVM_RETRYABLE_ERROR, e.Code) {
+	//			time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
+	//			return resource.RetryableError(fmt.Errorf("[first check exist]cvm describe error: %s, retrying", e.Error()))
+	//		}
+	//		return resource.NonRetryableError(errRet)
+	//	}
+	//	if instance == nil {
+	//		notExist = true
+	//		return nil
+	//	}
+	//	if *instance.InstanceState == CVM_STATUS_SHUTDOWN && *instance.LatestOperationState != CVM_LATEST_OPERATION_STATE_OPERATING {
+	//		//in recycling
+	//		return nil
+	//	}
+	//	time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
+	//	return resource.RetryableError(fmt.Errorf("[check exist retry]cvm instance status is %s, retry...", *instance.InstanceState))
+	//})
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//if notExist || !forceDelete {
+	//	return nil
+	//}
+	//
+	//// exist in recycle, delete again
+	//err = resource.Retry(writeRetryTimeout, func() *resource.RetryError {
+	//	errRet := cvmService.DeleteInstance(ctx, instanceId)
+	//	//when state is terminating, do not delete but check exist
+	//	if errRet != nil {
+	//		//check InvalidInstanceState.Terminating
+	//		log.Printf("[CRITAL][second delete]%s api[%s] fail, reason[%s]\n",
+	//			logId, "delete", errRet.Error())
+	//		ee, ok := errRet.(*sdkErrors.TencentCloudSDKError)
+	//		if ee.Code == "InvalidInstanceState.Terminating" {
+	//			return nil
+	//		}
+	//		if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
+	//			time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
+	//			return resource.RetryableError(fmt.Errorf("[second delete]cvm delete error: %s, retrying", ee.Error()))
+	//		}
+	//		time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
+	//		return retryError(errRet, "OperationDenied.InstanceOperationInProgress")
+	//	}
+	//	return nil
+	//})
+	//if err != nil {
+	//	return err
+	//}
+	//
+	////second check exist, describe and check not exist
+	//err = resource.Retry(3*readRetryTimeout, func() *resource.RetryError {
+	//	instance, errRet := cvmService.DescribeInstanceById(ctx, instanceId)
+	//	if errRet != nil {
+	//		log.Printf("[CRITAL][second check exist]%s api[%s] fail, reason[%s]\n",
+	//			logId, "describe", errRet.Error())
+	//		e, ok := errRet.(*sdkErrors.TencentCloudSDKError)
+	//		if ok && IsContains(CVM_RETRYABLE_ERROR, e.Code) {
+	//			time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
+	//			return resource.RetryableError(fmt.Errorf("[second check exist]cvm describe error: %s, retrying", e.Error()))
+	//		}
+	//		return resource.NonRetryableError(errRet)
+	//	}
+	//	if instance == nil {
+	//		return nil
+	//	}
+	//	return resource.RetryableError(fmt.Errorf("cvm instance status is %s, retry...", *instance.InstanceState))
+	//})
+	//if err != nil {
+	//	return err
+	//}
+	//if v, ok := d.GetOk("data_disks"); ok {
+	//	dataDisks := v.([]interface{})
+	//	for _, d := range dataDisks {
+	//		value := d.(map[string]interface{})
+	//		diskId := value["data_disk_id"].(string)
+	//		deleteWithInstance := value["delete_with_instance"].(bool)
+	//		if deleteWithInstance {
+	//			cbsService := CbsService{client: meta.(*TencentCloudClient).apiV3Conn}
+	//			err := resource.Retry(readRetryTimeout*2, func() *resource.RetryError {
+	//				//first describe disk
+	//				diskInfo, e := cbsService.DescribeDiskById(ctx, diskId)
+	//				log.Printf("[CRITAL][first describe disk]%s api[%s] fail, reason[%s]\n",
+	//					logId, "describe disk", e.Error())
+	//				ee, ok := e.(*sdkErrors.TencentCloudSDKError)
+	//				if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
+	//					time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
+	//					return resource.RetryableError(fmt.Errorf("[first describe disk]disk describe error: %s, retrying", e.Error()))
+	//				}
+	//				if *diskInfo.DiskState != CBS_STORAGE_STATUS_UNATTACHED {
+	//					time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
+	//					return resource.RetryableError(fmt.Errorf("[first describe disk]cbs storage status is %s", *diskInfo.DiskState))
+	//				}
+	//				return nil
+	//			})
+	//			if err != nil {
+	//				log.Printf("[CRITAL]%s delete cbs failed, reason:%s\n ", logId, err.Error())
+	//				return err
+	//			}
+	//			err = resource.Retry(writeRetryTimeout, func() *resource.RetryError {
+	//				e := cbsService.DeleteDiskById(ctx, diskId)
+	//				ee, ok := e.(*sdkErrors.TencentCloudSDKError)
+	//				if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
+	//					time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
+	//					return resource.RetryableError(fmt.Errorf("[first delete disk]disk delete error: %s, retrying", e.Error()))
+	//				}
+	//				return nil
+	//			})
+	//			if err != nil {
+	//				log.Printf("[CRITAL]%s delete cbs failed, reason:%s\n ", logId, err.Error())
+	//				return err
+	//			}
+	//			err = resource.Retry(readRetryTimeout*2, func() *resource.RetryError {
+	//				diskInfo, e := cbsService.DescribeDiskById(ctx, diskId)
+	//				ee, ok := e.(*sdkErrors.TencentCloudSDKError)
+	//				if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
+	//					time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
+	//					return resource.RetryableError(fmt.Errorf("[second describe]cbs describe error: %s, retrying", ee.Error()))
+	//				}
+	//				if *diskInfo.DiskState == CBS_STORAGE_STATUS_TORECYCLE {
+	//					return resource.RetryableError(fmt.Errorf("[second describe]cbs storage status is %s", *diskInfo.DiskState))
+	//				}
+	//				return nil
+	//			})
+	//			if err != nil {
+	//				log.Printf("[CRITAL]%s read cbs status failed, reason:%s\n ", logId, err.Error())
+	//				return err
+	//			}
+	//			err = resource.Retry(writeRetryTimeout, func() *resource.RetryError {
+	//				// second delete disk
+	//				e := cbsService.DeleteDiskById(ctx, diskId)
+	//				log.Printf("[CRITAL][first describe disk]%s api[%s] fail, reason[%s]\n",
+	//					logId, "second delete disk", e.Error())
+	//				ee, ok := e.(*sdkErrors.TencentCloudSDKError)
+	//				if ok && IsContains(CVM_RETRYABLE_ERROR, ee.Code) {
+	//					time.Sleep(1 * time.Second)   // 需要重试的话，等待1s进行重试
+	//					return resource.RetryableError(fmt.Errorf("[second delete disk]disk delete error: %s, retrying", e.Error()))
+	//				}
+	//				return nil
+	//			})
+	//			if err != nil {
+	//				log.Printf("[CRITAL]%s delete cbs failed, reason:%s\n ", logId, err.Error())
+	//				return err
+	//			}
+	//		}
+	//	}
+	//}
 	return nil
 }
 
