@@ -298,19 +298,19 @@ func resourceTencentCloudClsIndexCreate(d *schema.ResourceData, meta interface{}
 			ruleInfo.FullText = &fullTextInfo
 		}
 
-		if ruleKeyValueMap, ok := helper.InterfaceToMap(dMap, "key_value"); ok {
+		if keyValueMap, ok := helper.InterfaceToMap(dMap, "key_value"); ok {
 			ruleKeyValueInfo := cls.RuleKeyValueInfo{}
-			if v, ok := ruleKeyValueMap["case_sensitive"]; ok {
+			if v, ok := keyValueMap["case_sensitive"]; ok {
 				ruleKeyValueInfo.CaseSensitive = helper.Bool(v.(bool))
 			}
-			if v, ok := ruleKeyValueMap["key_values"]; ok {
-				for _, keyValue := range v.([]interface{}) {
+			if v, ok := keyValueMap["key_values"]; ok {
+				for _, keyValues := range v.([]interface{}) {
 					keyValueInfo := cls.KeyValueInfo{}
-					keyValueMap := keyValue.(map[string]interface{})
-					if v, ok := keyValueMap["key"]; ok {
+					keyValuesMap := keyValues.(map[string]interface{})
+					if v, ok := keyValuesMap["key"]; ok {
 						keyValueInfo.Key = helper.String(v.(string))
 					}
-					if valueMap, ok := helper.InterfaceToMap(keyValueMap, "value"); ok {
+					if valueMap, ok := helper.InterfaceToMap(keyValuesMap, "value"); ok {
 						valueInfo := cls.ValueInfo{}
 						if v, ok := valueMap["type"]; ok {
 							valueInfo.Type = helper.String(v.(string))
@@ -438,31 +438,29 @@ func resourceTencentCloudClsIndexRead(d *schema.ResourceData, meta interface{}) 
 		ruleMap := map[string]interface{}{}
 
 		if res.Rule.FullText != nil {
-			fullTextMap := map[string]interface{}{
-				"case_sensitive": res.Rule.FullText.CaseSensitive,
-				"tokenizer":      res.Rule.FullText.Tokenizer,
-				"contain_z_h":    res.Rule.FullText.ContainZH,
-			}
+			fullTextMap := map[string]interface{}{}
+			fullTextMap["case_sensitive"] = res.Rule.FullText.CaseSensitive
+			fullTextMap["tokenizer"] = res.Rule.FullText.Tokenizer
+			fullTextMap["contain_z_h"] = res.Rule.FullText.ContainZH
 			ruleMap["full_text"] = []interface{}{fullTextMap}
 		}
 
 		if res.Rule.KeyValue != nil {
-			ruleKeyValueMap := map[string]interface{}{
-				"case_sensitive": res.Rule.KeyValue.CaseSensitive,
-			}
+			ruleKeyValueMap := map[string]interface{}{}
+			ruleKeyValueMap["case_sensitive"] = res.Rule.KeyValue.CaseSensitive
+
 			if res.Rule.KeyValue.KeyValues != nil {
 				keyValuesList := []interface{}{}
 				for _, keyValueInfo := range res.Rule.KeyValue.KeyValues {
-					keyValueInfoMap := map[string]interface{}{
-						"key": keyValueInfo.Key,
-					}
+					keyValueInfoMap := map[string]interface{}{}
+					keyValueInfoMap["key"] = keyValueInfo.Key
+
 					if keyValueInfo.Value != nil {
-						valueInfoMap := map[string]interface{}{
-							"type":        keyValueInfo.Value.Type,
-							"tokenizer":   keyValueInfo.Value.Tokenizer,
-							"sql_flag":    keyValueInfo.Value.SqlFlag,
-							"contain_z_h": keyValueInfo.Value.ContainZH,
-						}
+						valueInfoMap := map[string]interface{}{}
+						valueInfoMap["type"] = keyValueInfo.Value.Type
+						valueInfoMap["tokenizer"] = keyValueInfo.Value.Tokenizer
+						valueInfoMap["sql_flag"] = keyValueInfo.Value.SqlFlag
+						valueInfoMap["contain_z_h"] = keyValueInfo.Value.ContainZH
 						keyValueInfoMap["value"] = []interface{}{valueInfoMap}
 					}
 					keyValuesList = append(keyValuesList, keyValueInfoMap)
@@ -478,17 +476,16 @@ func resourceTencentCloudClsIndexRead(d *schema.ResourceData, meta interface{}) 
 			}
 			if res.Rule.Tag.KeyValues != nil {
 				keyValuesList := []interface{}{}
-				for _, keyValueInfo := range res.Rule.Tag.KeyValues {
-					keyValueInfoMap := map[string]interface{}{
-						"key": keyValueInfo.Key,
-					}
+				for _, keyValueInfo := range res.Rule.KeyValue.KeyValues {
+					keyValueInfoMap := map[string]interface{}{}
+					keyValueInfoMap["key"] = keyValueInfo.Key
+
 					if keyValueInfo.Value != nil {
-						valueInfoMap := map[string]interface{}{
-							"type":        keyValueInfo.Value.Type,
-							"tokenizer":   keyValueInfo.Value.Tokenizer,
-							"sql_flag":    keyValueInfo.Value.SqlFlag,
-							"contain_z_h": keyValueInfo.Value.ContainZH,
-						}
+						valueInfoMap := map[string]interface{}{}
+						valueInfoMap["type"] = keyValueInfo.Value.Type
+						valueInfoMap["tokenizer"] = keyValueInfo.Value.Tokenizer
+						valueInfoMap["sql_flag"] = keyValueInfo.Value.SqlFlag
+						valueInfoMap["contain_z_h"] = keyValueInfo.Value.ContainZH
 						keyValueInfoMap["value"] = []interface{}{valueInfoMap}
 					}
 					keyValuesList = append(keyValuesList, keyValueInfoMap)
