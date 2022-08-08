@@ -240,6 +240,16 @@ func composedKubernetesAsScalingConfigPara() map[string]*schema.Schema {
 						Optional:    true,
 						Description: "Indicates whether the disk remove after instance terminated.",
 					},
+					"encrypt": {
+						Type:        schema.TypeBool,
+						Optional:    true,
+						Description: "Specify whether to encrypt data disk, default: false.",
+					},
+					"throughput_performance": {
+						Type:        schema.TypeBool,
+						Optional:    true,
+						Description: "Add extra performance to the data disk. Only works when disk type is `CLOUD_TSSD` or `CLOUD_HSSD` and `data_size` > 460GB.",
+					},
 				},
 			},
 		},
@@ -652,6 +662,8 @@ func composedKubernetesAsScalingConfigParaSerial(dMap map[string]interface{}, me
 			diskSize := uint64(value["disk_size"].(int))
 			snapshotId := value["snapshot_id"].(string)
 			deleteWithInstance, dOk := value["delete_with_instance"].(bool)
+			encrypt, eOk := value["encrypt"].(bool)
+			throughputPerformance := value["throughput_performance"].(int)
 			dataDisk := as.DataDisk{
 				DiskType: &diskType,
 			}
@@ -663,6 +675,12 @@ func composedKubernetesAsScalingConfigParaSerial(dMap map[string]interface{}, me
 			}
 			if dOk {
 				dataDisk.DeleteWithInstance = &deleteWithInstance
+			}
+			if eOk {
+				dataDisk.Encrypt = &encrypt
+			}
+			if throughputPerformance > 0 {
+				dataDisk.ThroughputPerformance = helper.IntUint64(throughputPerformance)
 			}
 			request.DataDisks = append(request.DataDisks, &dataDisk)
 		}
@@ -796,6 +814,8 @@ func composeAsLaunchConfigModifyRequest(d *schema.ResourceData, launchConfigId s
 			diskSize := uint64(value["disk_size"].(int))
 			snapshotId := value["snapshot_id"].(string)
 			deleteWithInstance, dOk := value["delete_with_instance"].(bool)
+			encrypt, eOk := value["encrypt"].(bool)
+			throughputPerformance := value["throughput_performance"].(int)
 			dataDisk := as.DataDisk{
 				DiskType: &diskType,
 			}
@@ -807,6 +827,12 @@ func composeAsLaunchConfigModifyRequest(d *schema.ResourceData, launchConfigId s
 			}
 			if dOk {
 				dataDisk.DeleteWithInstance = &deleteWithInstance
+			}
+			if eOk {
+				dataDisk.Encrypt = &encrypt
+			}
+			if throughputPerformance > 0 {
+				dataDisk.ThroughputPerformance = helper.IntUint64(throughputPerformance)
 			}
 			request.DataDisks = append(request.DataDisks, &dataDisk)
 		}
@@ -1031,6 +1057,12 @@ func resourceKubernetesNodePoolRead(d *schema.ResourceData, meta interface{}) er
 				}
 				if item.DeleteWithInstance != nil {
 					disk["delete_with_instance"] = *item.DeleteWithInstance
+				}
+				if item.Encrypt != nil {
+					disk["encrypt"] = *item.Encrypt
+				}
+				if item.ThroughputPerformance != nil {
+					disk["throughput_performance"] = *item.ThroughputPerformance
 				}
 				dataDisks = append(dataDisks, disk)
 			}
