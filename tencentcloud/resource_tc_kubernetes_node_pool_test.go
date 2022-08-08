@@ -246,6 +246,7 @@ resource "tencentcloud_kubernetes_node_pool" "np_test" {
     data_disk {
       disk_type = "CLOUD_PREMIUM"
       disk_size = 50
+      encrypt = true
     }
 
     internet_charge_type       = "TRAFFIC_POSTPAID_BY_HOUR"
@@ -315,6 +316,7 @@ resource "tencentcloud_kubernetes_node_pool" "np_test" {
       disk_type = "CLOUD_PREMIUM"
       disk_size = 100
       delete_with_instance = true
+      encrypt = true
     }
 
     internet_charge_type       = "TRAFFIC_POSTPAID_BY_HOUR"
