@@ -216,7 +216,7 @@ The `data_disk` object supports the following:
 * `disk_type` - (Optional, String, ForceNew) Types of disk. Valid value: `CLOUD_PREMIUM` and `CLOUD_SSD`.
 * `encrypt` - (Optional, Bool) Specify whether to encrypt data disk, default: false.
 * `snapshot_id` - (Optional, String, ForceNew) Data disk snapshot ID.
-* `throughput_performance` - (Optional, Bool) Add extra performance to the data disk. Only works when disk type is `CLOUD_TSSD` or `CLOUD_HSSD` and `data_size` > 460GB.
+* `throughput_performance` - (Optional, Int) Add extra performance to the data disk. Only works when disk type is `CLOUD_TSSD` or `CLOUD_HSSD` and `data_size` > 460GB.
 
 The `node_config` object supports the following:
 

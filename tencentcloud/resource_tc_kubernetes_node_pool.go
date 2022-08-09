@@ -246,7 +246,7 @@ func composedKubernetesAsScalingConfigPara() map[string]*schema.Schema {
 						Description: "Specify whether to encrypt data disk, default: false.",
 					},
 					"throughput_performance": {
-						Type:        schema.TypeBool,
+						Type:        schema.TypeInt,
 						Optional:    true,
 						Description: "Add extra performance to the data disk. Only works when disk type is `CLOUD_TSSD` or `CLOUD_HSSD` and `data_size` > 460GB.",
 					},
