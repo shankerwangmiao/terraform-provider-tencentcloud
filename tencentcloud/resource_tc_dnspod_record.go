@@ -33,6 +33,9 @@ func resourceTencentCloudDnspodRecord() *schema.Resource {
 		Read:   resourceTencentCloudDnspodRecordRead,
 		Update: resourceTencentCloudDnspodRecordUpdate,
 		Delete: resourceTencentCloudDnspodRecordDelete,
+		Importer: &schema.ResourceImporter{
+			State: schema.ImportStatePassthrough,
+		},
 
 		Schema: map[string]*schema.Schema{
 			"domain": {
@@ -171,6 +174,10 @@ func resourceTencentCloudDnspodRecordRead(d *schema.ResourceData, meta interface
 		_ = d.Set("ttl", recordInfo.TTL)
 		_ = d.Set("monitor_status", recordInfo.MonitorStatus)
 		_ = d.Set("weight", recordInfo.Weight)
+		_ = d.Set("domain", request.Domain)
+		_ = d.Set("record_type", recordInfo.RecordType)
+		_ = d.Set("record_line", recordInfo.RecordLine)
+		_ = d.Set("value", recordInfo.Value)
 		if *recordInfo.Enabled == uint64(0) {
 			_ = d.Set("status", "DISABLE")
 		} else {
